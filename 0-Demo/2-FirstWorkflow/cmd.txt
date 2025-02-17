@@ -1,0 +1,7 @@
+kubectl create rolebinding default-admin --clusterrole=admin --serviceaccount=argo:default -n argo
+
+# argo submit -n argo --watch https://raw.githubusercontent.com/argoproj/argo-workflows/refs/heads/main/examples/hello-world.yaml --serviceaccount argo
+
+argo submit -n argo --watch https://raw.githubusercontent.com/argoproj/argo-workflows/refs/heads/main/examples/hello-world.yaml
+
+Refer: https://argo-workflows.readthedocs.io/en/latest/service-accounts/

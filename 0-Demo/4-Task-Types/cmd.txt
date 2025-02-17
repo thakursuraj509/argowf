@@ -1,0 +1,40 @@
+Container Template
+---------------
+argo submit 00-hello-world.yaml -n argo
+argo list -n argo
+argo get <wf-name> -n argo
+################################
+Script Template
+---------------
+argo submit 01-script-template-demo.yml -n argo
+argo watch <workflow-name> -n argo
+argo logs <workflow-name> -n argo
+################################
+Resource Template
+------------------
+# Make sure to create correct roles and role bindings
+argo submit create-deployment.yml -n argo
+argo submit delete-deployment.yml -n argo
+################################
+Suspend Template
+----------------
+argo submit suspend-template-demo.yaml -n argo
+argo resume <workflow-name> -n argo
+# Check online resource for more examples
+################################
+When condition
+--------------
+argo submit basic-conditional-execution.yaml -n argo
+argo submit advanced-conditional-execution.yaml -n argo
+################################
+DAG demo
+--------
+argo submit basic-dag-workflow.yaml -n argo
+argo submit complex-dag-workflow.yaml -p branch=branch1 -n argo
+argo submit complex-dag-workflow.yaml -p branch=branch2 -n argo
+################################
+Sequential workflow
+-------------------
+argo submit sequential-workflow.yaml -n argo
+argo submit conditional-sequential-workflow.yaml -n argo
+################################

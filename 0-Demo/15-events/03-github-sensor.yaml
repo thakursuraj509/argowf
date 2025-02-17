@@ -1,0 +1,66 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: github-pr-sensor
+  namespace: argo-events
+spec:
+  template:
+    serviceAccountName: operate-workflow-sa
+  dependencies:
+    - name: pr
+      eventSourceName: github
+      eventName: argo-combined-app
+      # filters:
+      #   data:
+      #     # Type of Github event that triggered the delivery: [pull_request, push, issues, label, ...]
+      #     # https://docs.github.com/en/developers/webhooks-and-events/webhook-events-and-payloads
+      #     - path: headers.X-Github-Event
+      #       type: string
+      #       value:
+      #         - pull_request
+      #     - path: body.action
+      #       type: string
+      #       value:
+      #         - opened
+      #         - edited
+      #         - reopened
+      #         - synchronize
+      #     - path: body.pull_request.state
+      #       type: string
+      #       value:
+      #         - open
+      #     - path: body.pull_request.base.ref
+      #       type: string
+      #       value:
+      #         - master
+  triggers:
+    - template:
+        name: github-workflow-trigger
+        k8s:
+          operation: create
+          source:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Workflow
+              metadata:
+                generateName: github-
+                namespace: argo-events
+              spec:
+                entrypoint: whalesay
+                arguments:
+                  parameters:
+                    - name: message
+                      value: hello
+                templates:
+                  - name: whalesay
+                    inputs:
+                      parameters:
+                        - name: message
+                    container:
+                      image: docker/whalesay:latest
+                      command: [cowsay]
+                      args: ["{{inputs.parameters.message}}"]
+          parameters:
+            - src:
+                dependencyName: pr
+              dest: spec.arguments.parameters.0.value

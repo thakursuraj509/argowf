@@ -1,0 +1,14 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: timeouts-
+spec:
+  activeDeadlineSeconds: 25 # terminate workflow after 25 seconds
+  entrypoint: sleep
+  templates:
+  - name: sleep
+    activeDeadlineSeconds: 20 # terminate container template after 20 seconds
+    container:
+      image: alpine:latest
+      command: [sh, -c]
+      args: ["echo sleeping for 5s; sleep 5; echo done"]

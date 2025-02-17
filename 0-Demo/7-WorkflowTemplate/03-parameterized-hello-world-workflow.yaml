@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: parameterized-hello-world-workflow-
+spec:
+  entrypoint: use-parameterized-hello-world-template
+  templates:
+  - name: use-parameterized-hello-world-template
+    inputs:
+      parameters:
+      - name: message
+        value: "Hello, Argo Workflows!"
+    steps:
+    - - name: invoke-parameterized-hello-world-template
+        templateRef:
+          name: parameterized-hello-world-template
+          template: parameterized-hello-world
+        arguments:
+          parameters:
+          - name: message
+            value: "{{inputs.parameters.message}}"

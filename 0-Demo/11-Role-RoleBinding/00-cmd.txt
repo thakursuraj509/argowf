@@ -1,0 +1,47 @@
+minikube start -p argowfdoc --driver=docker
+
+
+kubectl create namespace argo
+kubectl apply -n argo -f https://github.com/argoproj/argo-workflows/releases/download/v3.5.5/install.yaml
+
+kubectl get all -n argo
+
+kubectl -n argo port-forward deployment/argo-server 2746:2746
+
+
+kubectl create sa jenkins
+
+kubectl apply -f argo-workflows-clusterrole.yaml
+kubectl apply -f argo-workflows-clusterrolebinding.yaml
+
+kubectl apply -f argo-workflows-secret.yaml
+
+ARGO_TOKEN="Bearer $(kubectl get secret jenkins.service-account-token -o=jsonpath='{.data.token}' | base64 --decode)"
+echo $ARGO_TOKEN
+
+
+argo submit basic-dag-workflow.yaml
+
+argo submit basic-dag-workflow.yaml --serviceaccount jenkins
+
+argo submit basic-dag-workflow.yaml --serviceaccount jenkins -n argo
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+kubectl auth can-i patch workflows --as=system:serviceaccount:argo:default -n argo
+
+kubectl apply -f workflow-patcher-role.yaml -n argo
+kubectl apply -f workflow-patcher-rolebinding.yaml -n argo
+
+kubectl delete -f workflow-patcher-role.yaml -n argo
+kubectl delete -f workflow-patcher-rolebinding.yaml -n argo
+
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+kubectl apply -f workflow-configmap-patch-role.yaml -n argo
+kubectl apply -f workflow-configmap-patch-rolebinding.yaml -n argo
+
+kubectl delete -f workflow-configmap-patch-role.yaml -n argo
+kubectl delete -f workflow-configmap-patch-rolebinding.yaml -n argo
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

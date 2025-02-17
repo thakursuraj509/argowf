@@ -1,0 +1,288 @@
+kubectl create ns argo-events
+---
+Ref: https://github.com/argoproj/argo-events/releases
+Ex.
+controlplane $ kubectl apply -n argo-events -f https://github.com/argoproj/argo-events/releases/download/v1.9.5/install.yaml
+customresourcedefinition.apiextensions.k8s.io/eventbus.argoproj.io created
+customresourcedefinition.apiextensions.k8s.io/eventsources.argoproj.io created
+customresourcedefinition.apiextensions.k8s.io/sensors.argoproj.io created
+serviceaccount/argo-events-sa created
+clusterrole.rbac.authorization.k8s.io/argo-events-aggregate-to-admin created
+clusterrole.rbac.authorization.k8s.io/argo-events-aggregate-to-edit created
+clusterrole.rbac.authorization.k8s.io/argo-events-aggregate-to-view created
+clusterrole.rbac.authorization.k8s.io/argo-events-role created
+clusterrolebinding.rbac.authorization.k8s.io/argo-events-binding created
+configmap/argo-events-controller-config created
+deployment.apps/controller-manager created
+---
+Ref: https://github.com/argoproj/argo-events/blob/stable/examples/eventbus/native.yaml
+Ex.
+controlplane $ kubectl apply -n argo-events -f https://raw.githubusercontent.com/argoproj/argo-events/stable/examples/eventbus/native.yaml
+eventbus.argoproj.io/default created
+---
+controlplane $ cat /root/minio-secret.yaml
+apiVersion: v1
+stringData:
+  accesskey: argoproj
+  secretkey: sup3rs3cr3tp4ssw0rd1
+kind: Secret
+metadata:
+  name: minio-creds
+  labels:
+    app: minio
+type: Opaque
+---
+controlplane $ kubectl apply -n argo-events -f /root/minio-secret.yaml
+secret/minio-creds created
+---
+controlplane $ cat /root/minio-eventsource.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: minio
+spec:
+  minio:
+    example:
+      # bucket information
+      bucket:
+        # name of the bucket
+        name: argoproj
+      # s3 service endpoint
+      endpoint: minio.argo.svc.cluster.local:9000
+      # list of events to subscribe to
+      # Visit https://docs.minio.io/docs/minio-bucket-notification-guide.html
+      events:
+        - s3:ObjectCreated:Put
+        - s3:ObjectRemoved:Delete
+
+      # type of the connection
+      insecure: true
+      # accessKey refers to K8s secret that stores the access key
+      accessKey:
+        # Key within the K8s secret whose corresponding value (must be base64 encoded) is access key
+        key: accesskey
+        # Name of the K8s secret that contains the access key
+        name: minio-creds
+      # secretKey contains information about K8s secret that stores the secret key
+      secretKey:
+        # Key within the K8s secret whose corresponding value (must be base64 encoded) is secret key
+        key: secretkey
+        # Name of the K8s secret that contains the secret key
+        name: minio-creds
+---
+controlplane $ kubectl apply -n argo-events -f /root/minio-eventsource.yaml
+eventsource.argoproj.io/minio created
+---
+controlplane $ kubectl get all -n argo-events
+NAME                                           READY   STATUS    RESTARTS      AGE
+pod/controller-manager-557f584d9c-dn9ws        1/1     Running   0             87s
+pod/eventbus-default-stan-0                    2/2     Running   0             77s
+pod/eventbus-default-stan-1                    2/2     Running   0             67s
+pod/eventbus-default-stan-2                    2/2     Running   0             65s
+pod/minio-eventsource-hkv5l-7b97b5bb85-4t54m   1/1     Running   2 (46s ago)   63s
+
+NAME                                TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)                      AGE
+service/eventbus-default-stan-svc   ClusterIP   None         <none>        4222/TCP,6222/TCP,8222/TCP   77s
+
+NAME                                      READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/controller-manager        1/1     1            1           87s
+deployment.apps/minio-eventsource-hkv5l   1/1     1            1           63s
+
+NAME                                                 DESIRED   CURRENT   READY   AGE
+replicaset.apps/controller-manager-557f584d9c        1         1         1       87s
+replicaset.apps/minio-eventsource-hkv5l-7b97b5bb85   1         1         1       63s
+
+NAME                                     READY   AGE
+statefulset.apps/eventbus-default-stan   3/3     77s
+---
+controlplane $ kubectl get eventsource -n argo-events
+NAME    AGE
+minio   3m46s
+controlplane $ kubectl get eventbus -n argo-events
+NAME      AGE
+default   4m15s
+---
+controlplane $ cat /root/minio-sensor.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: minio
+spec:
+  dependencies:
+    - name: example-dep
+      eventSourceName: minio
+      eventName: example
+  triggers:
+    - template:
+        name: minio-workflow-trigger
+        k8s:
+          operation: create
+          source:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Workflow
+              metadata:
+                generateName: artifact-workflow-
+                namespace: argo
+              spec:
+                entrypoint: echo
+                arguments:
+                  parameters:
+                    - name: message
+                      # the value will get overridden by event payload from test-dep
+                      value: THIS_WILL_BE_REPLACED
+                templates:
+                  - name: echo
+                    inputs:
+                      parameters:
+                        - name: message
+                    container:
+                      command:
+                        - echo
+                      image: busybox
+                      args: ["{{inputs.parameters.message}}"]
+          # The container args from the workflow are overridden by the s3 notification key
+          parameters:
+            - src:
+                dependencyName: example-dep
+                dataKey: notification.0.s3.object.key
+              dest: spec.arguments.parameters.0.value
+      retryStrategy:
+        steps: 3
+---
+controlplane $ kubectl apply -n argo-events -f /root/minio-sensor.yaml
+sensor.argoproj.io/minio created
+---
+controlplane $ kubectl get sensor -n argo-events
+NAME    AGE
+minio   20s
+---
+controlplane $ kubectl get all -n argo-events
+NAME                                           READY   STATUS    RESTARTS        AGE
+pod/controller-manager-557f584d9c-dn9ws        1/1     Running   0               8m25s
+pod/eventbus-default-stan-0                    2/2     Running   0               8m15s
+pod/eventbus-default-stan-1                    2/2     Running   0               8m5s
+pod/eventbus-default-stan-2                    2/2     Running   0               8m3s
+pod/minio-eventsource-hkv5l-7b97b5bb85-4t54m   1/1     Running   2 (7m44s ago)   8m1s
+pod/minio-sensor-6gbqn-675f5448f-psr65         1/1     Running   0               52s
+
+NAME                                TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)                      AGE
+service/eventbus-default-stan-svc   ClusterIP   None         <none>        4222/TCP,6222/TCP,8222/TCP   8m15s
+
+NAME                                      READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/controller-manager        1/1     1            1           8m25s
+deployment.apps/minio-eventsource-hkv5l   1/1     1            1           8m1s
+deployment.apps/minio-sensor-6gbqn        1/1     1            1           52s
+
+NAME                                                 DESIRED   CURRENT   READY   AGE
+replicaset.apps/controller-manager-557f584d9c        1         1         1       8m25s
+replicaset.apps/minio-eventsource-hkv5l-7b97b5bb85   1         1         1       8m1s
+replicaset.apps/minio-sensor-6gbqn-675f5448f         1         1         1       52s
+
+NAME                                     READY   AGE
+statefulset.apps/eventbus-default-stan   3/3     8m15s
+---
+controlplane $ cat /root/minio-eventsource.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: minio
+spec:
+  minio:
+    example:
+      # bucket information
+      bucket:
+        # name of the bucket
+        name: argoproj
+      # s3 service endpoint
+      endpoint: minio.argo.svc.cluster.local:9000
+      # list of events to subscribe to
+      # Visit https://docs.minio.io/docs/minio-bucket-notification-guide.html
+      events:
+        - s3:ObjectCreated:Put
+        - s3:ObjectRemoved:Delete
+
+      # type of the connection
+      insecure: true
+      # accessKey refers to K8s secret that stores the access key
+      accessKey:
+        # Key within the K8s secret whose corresponding value (must be base64 encoded) is access key
+        key: accesskey
+        # Name of the K8s secret that contains the access key
+        name: minio-creds
+      # secretKey contains information about K8s secret that stores the secret key
+      secretKey:
+        # Key within the K8s secret whose corresponding value (must be base64 encoded) is secret key
+        key: secretkey
+        # Name of the K8s secret that contains the secret key
+        name: minio-creds
+---
+controlplane $ kubectl -n argo port-forward --address 0.0.0.0 svc/minio 9001:9001 > /dev/null &
+[1] 43416
+---
+controlplane $ cat /root/sa.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: argo-events-create-wf
+  namespace: argo-events
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflows"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argo-events-cluster-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argo-events-create-wf
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: argo-events
+---
+controlplane $ kubectl apply -n argo-events -f /root/sa.yaml
+clusterrole.rbac.authorization.k8s.io/argo-events-create-wf created
+clusterrolebinding.rbac.authorization.k8s.io/argo-events-cluster-role-binding created
+---
+upload a file in minio and check logs
+controlplane $ kubectl -n argo-events logs -l sensor-name=minio
+{"level":"info","ts":1738486999.7375133,"logger":"argo-events.sensor","caller":"sensors/listener.go:505","msg":"Dependency expression for trigger minio-workflow-trigger: example-dep","sensorName":"minio"}
+{"level":"info","ts":1738486999.737861,"logger":"argo-events.sensor","caller":"base/stan.go:49","msg":"NATS auth strategy: Token","sensorName":"minio","clientID":"client-3857313510-91"}
+{"level":"info","ts":1738486999.7407615,"logger":"argo-events.sensor","caller":"base/stan.go:61","msg":"Connected to NATS server.","sensorName":"minio","clientID":"client-3857313510-91"}
+{"level":"info","ts":1738486999.7468712,"logger":"argo-events.sensor","caller":"base/stan.go:74","msg":"Connected to NATS streaming server.","sensorName":"minio","clientID":"client-3857313510-91"}
+{"level":"info","ts":1738486999.7471128,"logger":"argo-events.sensor","caller":"sensors/listener.go:316","msg":"starting eventbus connection daemon for client STANTriggerConn{ClientID:client-3857313510-91,Sensor:minio,Trigger:minio-workflow-trigger}...","sensorName":"minio","triggerName":"minio-workflow-trigger"}
+{"level":"info","ts":1738486999.747506,"logger":"argo-events.sensor","caller":"sensors/listener.go:302","msg":"started subscribing to events for trigger minio-workflow-trigger with client connection STANTriggerConn{ClientID:client-3857313510-91,Sensor:minio,Trigger:minio-workflow-trigger}","sensorName":"minio","triggerName":"minio-workflow-trigger"}
+{"level":"info","ts":1738486999.7586596,"logger":"argo-events.sensor","caller":"sensor/trigger_conn.go:106","msg":"Subscribed to subject eventbus-argo-events using durable name client-3857313510","sensorName":"minio","triggerName":"minio-workflow-trigger","clientID":"client-3857313510-91"}
+{"level":"info","ts":1738486999.7588549,"logger":"argo-events.sensor","caller":"sensor/trigger_conn.go:114","msg":"starting ExactOnce cache clean up daemon ...","sensorName":"minio","triggerName":"minio-workflow-trigger","clientID":"client-3857313510-91"}
+{"level":"info","ts":1738487514.9268367,"logger":"argo-events.sensor","caller":"standard-k8s/standard-k8s.go:157","msg":"creating the object...","sensorName":"minio","triggerName":"minio-workflow-trigger","triggerType":"Kubernetes"}
+{"level":"info","ts":1738487514.9917974,"logger":"argo-events.sensor","caller":"sensors/listener.go:449","msg":"Successfully processed trigger 'minio-workflow-trigger'","sensorName":"minio","triggerName":"minio-workflow-trigger","triggerType":"Kubernetes","triggeredBy":["example-dep"],"triggeredByEvents":["510fc8e7b2464afda62558b1ee46480b"]}
+---
+controlplane $ argo logs -n argo @latest
+artifact-workflow-xfghh: new 17.txt
+artifact-workflow-xfghh: time="2025-02-02T09:14:59.562Z" level=info msg="sub-process exited" argo=true error="<nil>"
+---
+
+kubectl apply -f webhook-event-source.yaml
+
+kubectl apply -f webhook-sensor.yaml
+
+curl -d '{"message":"Hello, Argo!"}' -H "Content-Type: application/json" -X POST http://<your-cluster-ip>:12000/example
+
+---
+argo-events PAT:  
+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
+---
+echo -n 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 | base64
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-access
+type: Opaque
+data:
+  token: Z2hwX29yRUZoaTJtYklZU2dwaUMzNWxKNjlVYXNrT1hjVTJQazllcQ==
+---

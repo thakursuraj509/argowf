@@ -1,0 +1,9 @@
+kubectl create namespace argo
+kubectl apply -n argo -f https://github.com/argoproj/argo-workflows/releases/download/v3.6.2/quick-start-minimal.yaml
+kubectl -n argo port-forward deployment/argo-server 2746:2746
+kubectl delete namespace argo
+
+kubectl create namespace argo
+kubectl apply -n argo -f https://github.com/argoproj/argo-workflows/releases/download/v3.6.2/install.yaml
+kubectl patch deployment argo-server --namespace argo --type json --patch-file argo-server-patch.json
+kubectl -n argo port-forward deployment/argo-server 2746:2746
